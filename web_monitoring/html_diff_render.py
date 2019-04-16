@@ -692,12 +692,24 @@ def fixup_chunks(chunks):
 
     return result
 
+
+def clean_resource(name, element):
+    match = re.search(r"/web/\d{14}", element.get(name))
+    if match:
+        element.attrib[name] = element.get(name)[match.end():]
+
+
 def flatten_el(el, include_hrefs, skip_tag=False):
     """ Takes an lxml element el, and generates all the text chunks for
     that tag.  Each start tag is a chunk, each word is a chunk, and each
-    end tag is a chunk.
+    end tag is a chunk. """
 
-    If skip_tag is true, then the outermost container tag is
+    if el.get('src'):
+        clean_resource('src', el)
+    elif el.get('href'):
+        clean_resource('href', el)
+
+    """ If skip_tag is true, then the outermost container tag is
     not returned (just its contents)."""
     if not skip_tag:
         if el.tag == 'img':
