@@ -190,8 +190,14 @@ EMPTY_HTML = '''<html>
 MAX_SPACERS = 2500
 
 
+class Strict_url_rule:
+    mode = False
+    REGEX_RULES = {'WBM': r"/web/\d{14}"}
+
+
 def html_diff_render(a_text, b_text, a_headers=None, b_headers=None,
-                     include='combined', content_type_options='normal'):
+                     include='combined', content_type_options='normal',
+                     strict_urls=False):
     """
     HTML Diff for rendering. This is focused on visually highlighting portions
     of a page’s text that have been changed. It does not do much to show how
@@ -244,6 +250,9 @@ def html_diff_render(a_text, b_text, a_headers=None, b_headers=None,
         - `nocheck` ignores the `Content-Type` header but still sniffs.
         - `nosniff` uses the `Content-Type` header but does not sniff.
         - `ignore` doesn’t do any checking at all.
+    strict_urls : string
+        The value of the URL parameter that indicates if the tag elements and href
+        elements should use special rules when checking equality,
 
     Example
     -------
@@ -258,6 +267,7 @@ def html_diff_render(a_text, b_text, a_headers=None, b_headers=None,
         b_headers,
         content_type_options)
 
+    Strict_url_rule.mode = strict_urls
     soup_old = html5_parser.parse(a_text.strip() or EMPTY_HTML,
                                   treebuilder='soup', return_root=False)
     soup_new = html5_parser.parse(b_text.strip() or EMPTY_HTML,
@@ -541,6 +551,16 @@ class tag_token(DiffToken):
         obj.html_repr = html_repr
         return obj
 
+    def __eq__(self, other):
+        # This equality check aims to apply specific rules to the contents
+        # of the tag element solving false positive cases
+        if Strict_url_rule.mode:
+            return clean_resource(self, other)
+        return str.__eq__(self, other) or str.__eq__(self.lower(), other.lower())
+
+    def __hash__(self):
+        return hash(self.lower())
+
     def __repr__(self):
         return 'tag_token(%s, %s, html_repr=%s, post_tags=%r, pre_tags=%r, trailing_whitespace=%r)' % (
             self.tag,
@@ -557,6 +577,16 @@ class href_token(DiffToken):
     show the href when it changes.  """
 
     hide_when_equal = True
+
+    def __eq__(self, other):
+        # This equality check aims to apply specific rules to the contents of
+        # the href element solving false positive cases
+        if Strict_url_rule.mode:
+            return clean_resource(self, other)
+        return str.__eq__(self, other) or str.__eq__(self.lower(), other.lower())
+
+    def __hash__(self):
+        return hash(self.lower())
 
     def html(self):
         return ' Link: %s' % self
@@ -693,10 +723,18 @@ def fixup_chunks(chunks):
     return result
 
 
-def clean_resource(name, element):
-    match = re.search(r"/web/\d{14}", element.get(name))
-    if match:
-        element.attrib[name] = element.get(name)[match.end():]
+def clean_resource(element, other):
+    try:
+        match_element = re.search(Strict_url_rule.REGEX_RULES[Strict_url_rule.mode], element)
+        if match_element:
+            element = element[match_element.end():]
+        match_other = re.search(Strict_url_rule.REGEX_RULES[Strict_url_rule.mode], other)
+        if match_other:
+            other = other[match_other.end():]
+        return str.__eq__(element, other) or str.__eq__(element.lower(), other.lower())
+    except KeyError:
+        raise KeyError("{} is an invalid strict URL rule."
+                       "".format(Strict_url_rule.mode))
 
 
 def flatten_el(el, include_hrefs, skip_tag=False):
@@ -704,10 +742,6 @@ def flatten_el(el, include_hrefs, skip_tag=False):
     that tag.  Each start tag is a chunk, each word is a chunk, and each
     end tag is a chunk. """
 
-    if el.get('src'):
-        clean_resource('src', el)
-    elif el.get('href'):
-        clean_resource('href', el)
 
     """ If skip_tag is true, then the outermost container tag is
     not returned (just its contents)."""
