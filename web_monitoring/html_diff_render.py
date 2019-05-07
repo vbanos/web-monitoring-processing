@@ -192,7 +192,9 @@ MAX_SPACERS = 2500
 
 class Strict_url_rule:
     mode = False
-    REGEX_RULES = {'WBM': r"/web/\d{14}"}
+    REGEX_RULES = {'WBM': r"web\/\d{14}(im_)?/(https?\:\/\/)?(www\.)?",
+                   'jsessionid': r";jsessionid[^;=]*=([^;]+)",
+                   'UKWA': r"https://www\.webarchive\.org\.uk/wayback/en/archive/\d{14}mp_/"}
 
 
 def html_diff_render(a_text, b_text, a_headers=None, b_headers=None,
@@ -723,14 +725,22 @@ def fixup_chunks(chunks):
     return result
 
 
+def check_clean_regex(element, regex):
+    match_element = re.search(regex, element)
+    if match_element:
+        element = element[match_element.end():]
+        match_element = re.search(r'(https?\:\/\/)?(www\.)?', element)
+        if match_element:
+            return element[match_element.end():]
+    return element
+
+
 def clean_resource(element, other):
     try:
-        match_element = re.search(Strict_url_rule.REGEX_RULES[Strict_url_rule.mode], element)
-        if match_element:
-            element = element[match_element.end():]
-        match_other = re.search(Strict_url_rule.REGEX_RULES[Strict_url_rule.mode], other)
-        if match_other:
-            other = other[match_other.end():]
+        element = check_clean_regex(element, Strict_url_rule.REGEX_RULES[Strict_url_rule.mode])
+        other = check_clean_regex(other, Strict_url_rule.REGEX_RULES[Strict_url_rule.mode])
+        if (str.__eq__(element, other) or str.__eq__(element.lower(), other.lower())) == False:
+            print('here I am')
         return str.__eq__(element, other) or str.__eq__(element.lower(), other.lower())
     except KeyError:
         raise KeyError("{} is an invalid strict URL rule."
@@ -740,10 +750,9 @@ def clean_resource(element, other):
 def flatten_el(el, include_hrefs, skip_tag=False):
     """ Takes an lxml element el, and generates all the text chunks for
     that tag.  Each start tag is a chunk, each word is a chunk, and each
-    end tag is a chunk. """
+    end tag is a chunk.
 
-
-    """ If skip_tag is true, then the outermost container tag is
+    If skip_tag is true, then the outermost container tag is
     not returned (just its contents)."""
     if not skip_tag:
         if el.tag == 'img':
